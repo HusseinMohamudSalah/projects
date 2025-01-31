@@ -1,108 +1,137 @@
+const express = require("express");
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const sendEmail = require("../utils/mailer");  // Haddii aad rabto inaad email dirto
 const User = require("../models/User");
-const sendEmail = require("../utils/mailer");
+const Message = require("../models/Message");
 
-exports.login = async (req, res, next) => {
+const app = express();
+app.use(express.json());
+
+// User Schema
+const userSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    role: { type: String, default: "user" }
+});
+
+userSchema.methods.generateAuthToken = function () {
+    const token = jwt.sign({ _id: this._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
+    return token;
+};
+
+const User = mongoose.model("User", userSchema);
+
+// Message Schema
+const messageSchema = new mongoose.Schema({
+    sender: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    receiver: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    message: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now }
+});
+
+const Message = mongoose.model("Message", messageSchema);
+
+// User Registration
+app.post("/api/register", async (req, res) => {
+    const { name, email, password } = req.body;
+
     try {
-        // TODO: 1. Get email and password from request body
-        const { email, password } = req.body;
+        const existingUser = await User.findOne({ email });
 
-        // TODO: 2. Find user by credentials
-        const user = await User().findByCredentials(email, password);
+        if (existingUser) {
+            return res.status(400).json({ message: "User already exists" });
+        }
 
-        // TODO: 3. Generate auth token
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newUser = new User({ name, email, password: hashedPassword });
+
+        await newUser.save();
+
+        const token = newUser.generateAuthToken();
+
+        res.status(201).json({
+            success: true,
+            message: "Registration successful",
+            data: { user: newUser, token }
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// User Login
+app.post("/api/login", async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+
+        if (!isMatch) {
+            return res.status(400).json({ message: "Invalid credentials" });
+        }
+
         const token = user.generateAuthToken();
 
-        // TODO: 4. Send response
         res.status(200).json({
             success: true,
             message: "Login successful",
-            data: {
-                user,
-                token
-            }
+            data: { user, token }
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Send Message
+app.post("/api/send-message", async (req, res) => {
+    const { senderId, receiverId, messageContent } = req.body;
+
+    try {
+        const message = new Message({
+            sender: senderId,
+            receiver: receiverId,
+            message: messageContent
         });
 
-    } catch (error) {
-        next(error)
-    }
-}
-
-exports.register = async (req, res, next) => {
-    try {
-        // TODO: 1. Get name, email and password from request body
-        const { name, email, password } = req.body;
-
-        // TODO: 2. Create user
-        const user = await User.create({ name, email, password });
-
-        // TODO: 3. Generate auth token
-        const token = user.generateAuthToken();
-
-        // TODO: 4. Send response
-        res.status(200).json({
-            success: true,
-            message: "Registration successful",
-            data: {
-                user,
-                token
-            }
-        });
-
-    } catch (error) {
-        next(error)
-    }
-}
-
-exports.forgetPassword = async (req, res, next) => {
-    try {
-        // TODO: 1. Get email from request body
-        const { email } = req.body;
-
-        // TODO: 2. Find user by email
-        const user = await User.findOne({ email });
-
-        // TODO: 3. Generate reset password token
-        const token = await user.generateResetPasswordToken();
-
-        // TODO: 4. Send email
-        await sendEmail(user.email, "Reset Password", `http://localhost:3000/reset-password/${token}`);
-
-        // TODO: 3. Send response
-        res.status(200).json({
-            success: true,
-            message: "Password reset link sent successfully",
-            data: user
-        });
-
-    } catch (error) {
-        next(error)
-    }
-}
-
-exports.resetPassword = async (req, res, next) => {
-    try {
-        // TODO: 1. Get token and password from request body
-        const { token, password } = req.body;
-
-        // TODO: 2. Find user by token
-        const user = await User.findOne({ resetPasswordToken: token, resetPasswordExpire: { $gt: Date.now() } });
-
-        // TODO: 3. Update password
-        user.password = password;
-        user.resetPasswordToken = undefined;
-        user.resetPasswordExpire = undefined;
-        await user.save();
-
-        // TODO: 4. Send response
-        sendEmail(user.email, "Reset Password", "Password reset successful");
+        await message.save();
 
         res.status(200).json({
             success: true,
-            message: "Password reset successful",
-            data: user
+            message: "Message sent successfully",
+            data: message
         });
-
     } catch (error) {
-        next(error)
+        res.status(500).json({ message: error.message });
     }
-}
+});
+
+// Get Messages for User
+app.get("/api/messages/:userId", async (req, res) => {
+    const userId = req.params.userId;
+
+    try {
+        const messages = await Message.find({
+            $or: [
+                { sender: userId },
+                { receiver: userId }
+            ]
+        }).populate("sender receiver", "name email");
+
+        res.status(200).json({
+            success: true,
+            message: "Messages retrieved successfully",
+            data: messages
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
