@@ -1,43 +1,31 @@
-const mongoose = require('mongoose')
+const mongoose = require('mongoose');
 
-const ProductSchema = new mongoose.Schema({
-    name: {
+const ChatSchema = new mongoose.Schema({
+    message: {
         type: String,
+        required: true,
+    },
+    sender: {
+        type: mongoose.Schema.Types.ObjectId, // ID-ga user-ka diray
+        ref: 'User', // Isticmaal 'User' model si loo xiro user-ka
         required: true
     },
-    price: {
-        type: Number,
+    recipient: {
+        type: mongoose.Schema.Types.ObjectId, // ID-ga user-ka helay
+        ref: 'User', // Isticmaal 'User' model si loo xiro user-ka
         required: true
     },
-    category: {
+    status: {
         type: String,
-        default: 'Uncategorised'
+        enum: ['sent', 'delivered', 'read'], // Status of the message
+        default: 'sent',
     },
-    description: {
-        type: String,
-        default: ''
+    createdAt: {
+        type: Date,
+        default: Date.now,
     },
-    image: {
-        type: String,
-        default: ''
-    },
-    rating: {
-        type: Number,
-        required: true,
-        default: 0
-    },
-    numReviews: {
-        type: Number,
-        required: true,
-        default: 0
-    },
-    countInStock: {
-        type: Number,
-        required: true,
-        default: 0
-    },
-})
+});
 
-const Product = mongoose.model('Product', ProductSchema)
+const Chat = mongoose.model('Chat', ChatSchema);
 
-module.exports = Product;
+module.exports = Chat;
